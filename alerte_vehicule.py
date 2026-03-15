@@ -31,7 +31,7 @@ TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 # 🔍 Critères globaux
 RECHERCHE = {
-    "prix_max":  3500,   # Budget maximum en euros
+    "prix_max":  2500,   # Budget maximum en euros
     "annee_min": 2000,   # Année minimum du véhicule
 }
 
@@ -234,7 +234,7 @@ def sauvegarder_annonce_vue(annonce_id):
 def envoyer_alerte_telegram(message):
     url     = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message,
-               "parse_mode": "HTML", "disable_web_page_preview": False}
+               "parse_mode": "HTML", "disable_web_page_preview": True}
     try:
         r = requests.post(url, data=payload, timeout=10)
         if r.status_code == 200:
@@ -245,6 +245,10 @@ def envoyer_alerte_telegram(message):
         print(f"  ❌ Telegram indisponible : {e}")
 
 def formater_message(annonce):
+    lien = annonce.get('lien', '')
+    # Nettoyage du lien pour s'assurer qu'il est valide
+    if not lien.startswith("http"):
+        lien = "https://" + lien
     return (
         f"🚗 <b>Nouvelle annonce !</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -253,7 +257,7 @@ def formater_message(annonce):
         f"📍 Lieu   : {annonce.get('lieu', 'N/A')}\n"
         f"🗺️ Zone   : {annonce.get('zone', 'N/A')}\n"
         f"🌐 Source : {annonce.get('source', 'N/A')}\n"
-        f"🔗 <a href=\"{annonce.get('lien', '#')}\">Voir l'annonce</a>\n"
+        f"🔗 Lien   : {lien}\n"
         f"🕐 {datetime.now().strftime('%d/%m/%Y à %H:%M')}"
     )
 
