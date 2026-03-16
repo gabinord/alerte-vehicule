@@ -294,25 +294,71 @@ def extraire_prix(texte):
 
 def scraper_leboncoin():
     annonces = []
-    headers  = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
+    # Headers complets imitant un vrai navigateur pour éviter le blocage
+    headers = {
+        "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection":      "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest":  "document",
+        "Sec-Fetch-Mode":  "navigate",
+        "Sec-Fetch-Site":  "none",
+        "Sec-Fetch-User":  "?1",
+        "Cache-Control":   "max-age=0",
+        "Referer":         "https://www.leboncoin.fr/",
+    }
+
+    # On utilise une session pour conserver les cookies entre les requêtes
+    session = requests.Session()
+    session.headers.update(headers)
+
+    # Première visite sur la page d'accueil pour récupérer les cookies
+    try:
+        session.get("https://www.leboncoin.fr/", timeout=15)
+        time.sleep(3)
+    except Exception:
+        pass
+
     for m in MODELES:
         q   = f"{m['marque']} {m['modele']}".replace(" ", "%20")
         url = (f"https://www.leboncoin.fr/recherche?category=2"
                f"&text={q}&price=min-{RECHERCHE['prix_max']}")
         try:
-            soup = BeautifulSoup(requests.get(url, headers=headers, timeout=15).text, "html.parser")
-            for a in soup.find_all("a", attrs={"data-test-id": "ad"})[:5]:
+            response = session.get(url, timeout=15)
+            soup     = BeautifulSoup(response.text, "html.parser")
+
+            # Tentative avec data-test-id classique
+            items = soup.find_all("a", attrs={"data-test-id": "ad"})
+
+            # Si rien trouvé → tentative avec structure alternative
+            if not items:
+                items = soup.find_all("a", href=lambda h: h and "/voitures/offre/" in h)
+
+            for a in items[:5]:
                 try:
-                    titre = (a.find("p",    attrs={"data-test-id": "ad-title"})    or object()).text.strip() or "Titre inconnu"
-                    lieu  = (a.find("p",    attrs={"data-test-id": "ad-location"}) or object()).text.strip() or ""
-                    prix_ = (a.find("span", attrs={"data-test-id": "price"})       or object()).text.strip() or "0"
+                    titre_el = (a.find("p",    attrs={"data-test-id": "ad-title"})
+                                or a.find("h2") or a.find("h3"))
+                    prix_el  = (a.find("span", attrs={"data-test-id": "price"})
+                                or a.find("span", class_=lambda c: c and "price" in c.lower() if c else False))
+                    lieu_el  = (a.find("p",    attrs={"data-test-id": "ad-location"})
+                                or a.find("p",  class_=lambda c: c and "location" in c.lower() if c else False))
+
+                    titre = titre_el.text.strip() if titre_el else f"{m['marque']} {m['modele']}"
+                    lieu  = lieu_el.text.strip()  if lieu_el  else ""
+                    prix_ = prix_el.text.strip()  if prix_el  else "0"
                     lien  = "https://www.leboncoin.fr" + a.get("href", "")
                     ajouter_si_valide(annonces, titre, extraire_prix(prix_), lieu, lien, "LeBonCoin")
                 except Exception:
                     continue
+
         except Exception as e:
             print(f"  ⚠️ LeBonCoin ({m['modele']}) : {e}")
-        time.sleep(2)
+
+        # Pause aléatoire entre 2 et 5 secondes pour imiter un humain
+        time.sleep(2 + (hash(m['modele']) % 3))
+
     print(f"  🔍 LeBonCoin    → {len(annonces)} annonce(s)")
     return annonces
 
@@ -357,7 +403,29 @@ def scraper_autoscout24():
 
 def scraper_la_centrale():
     annonces = []
-    headers  = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"}
+    headers = {
+        "User-Agent":      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection":      "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest":  "document",
+        "Sec-Fetch-Mode":  "navigate",
+        "Sec-Fetch-Site":  "none",
+        "Referer":         "https://www.lacentrale.fr/",
+    }
+
+    session = requests.Session()
+    session.headers.update(headers)
+
+    # Visite de la page d'accueil pour récupérer les cookies
+    try:
+        session.get("https://www.lacentrale.fr/", timeout=15)
+        time.sleep(3)
+    except Exception:
+        pass
+
     fuel_map = {"essence": "1", "diesel": "2"}
     for m in MODELES:
         fuels = "%7C".join([fuel_map[x] for x in m["motorisations"] if x in fuel_map])
@@ -366,22 +434,40 @@ def scraper_la_centrale():
                  f"&priceMax={RECHERCHE['prix_max']}&yearMin={RECHERCHE['annee_min']}"
                  f"&energies={fuels}")
         try:
-            soup = BeautifulSoup(requests.get(url, headers=headers, timeout=15).text, "html.parser")
-            for a in soup.find_all("div", class_=lambda c: c and "adCard" in c if c else False)[:5]:
+            response = session.get(url, timeout=15)
+            soup     = BeautifulSoup(response.text, "html.parser")
+
+            # Tentative structure principale
+            items = soup.find_all("div", class_=lambda c: c and "adCard" in c if c else False)
+
+            # Structure alternative si rien trouvé
+            if not items:
+                items = soup.find_all("article")
+            if not items:
+                items = soup.find_all("div", class_=lambda c: c and ("vehicle" in c.lower() or "annonce" in c.lower()) if c else False)
+
+            for a in items[:5]:
                 try:
                     titre_el = a.find(["h2", "h3"])
                     prix_el  = a.find(class_=lambda c: c and "price" in c.lower() if c else False)
-                    lieu_el  = a.find(class_=lambda c: c and "location" in c.lower() if c else False)
+                    lieu_el  = a.find(class_=lambda c: c and ("location" in c.lower() or "city" in c.lower()) if c else False)
                     lien_el  = a.find("a", href=True)
-                    titre = titre_el.text.strip() if titre_el else "Titre inconnu"
+
+                    titre = titre_el.text.strip() if titre_el else f"{m['marque']} {m['modele']}"
                     lieu  = lieu_el.text.strip()  if lieu_el  else ""
-                    lien  = "https://www.lacentrale.fr" + lien_el["href"] if lien_el else url
+                    lien  = lien_el["href"]        if lien_el  else url
+                    if not lien.startswith("http"):
+                        lien = "https://www.lacentrale.fr" + lien
+
                     ajouter_si_valide(annonces, titre, extraire_prix(prix_el.text if prix_el else "0"), lieu, lien, "La Centrale")
                 except Exception:
                     continue
+
         except Exception as e:
             print(f"  ⚠️ La Centrale ({m['modele']}) : {e}")
-        time.sleep(2)
+
+        time.sleep(2 + (hash(m['modele']) % 3))
+
     print(f"  🔍 La Centrale  → {len(annonces)} annonce(s)")
     return annonces
 
