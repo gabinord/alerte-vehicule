@@ -208,24 +208,44 @@ def modele_correspond(titre):
     return False
 
 # ============================================================
-# 📁 SUIVI DES ANNONCES DÉJÀ VUES
+# 📁 SUIVI DES ANNONCES DÉJÀ VUES (persistant sur Railway)
 # ============================================================
-
-FICHIER_ANNONCES_VUES = "annonces_vues.json"
+# On stocke les annonces vues dans une variable d'environnement
+# Railway pour qu'elles persistent même après un redémarrage.
+# Si Railway n'est pas disponible, on utilise un fichier local.
 
 def charger_annonces_vues():
-    if os.path.exists(FICHIER_ANNONCES_VUES):
-        with open(FICHIER_ANNONCES_VUES, "r") as f:
+    """Charge la liste des annonces déjà vues depuis Railway ou fichier local."""
+    # Tentative depuis variable d'environnement Railway
+    data = os.environ.get("ANNONCES_VUES", "")
+    if data:
+        try:
+            return json.loads(data)
+        except Exception:
+            pass
+    # Fallback : fichier local
+    if os.path.exists("annonces_vues.json"):
+        with open("annonces_vues.json", "r") as f:
             return json.load(f)
     return []
 
 def sauvegarder_annonce_vue(annonce_id):
+    """Sauvegarde une annonce vue en local ET affiche la mise à jour Railway."""
     vues = charger_annonces_vues()
     if annonce_id not in vues:
         vues.append(annonce_id)
-        vues = vues[-500:]
-        with open(FICHIER_ANNONCES_VUES, "w") as f:
+        vues = vues[-1000:]  # On garde les 1000 dernières
+
+        # Sauvegarde locale
+        with open("annonces_vues.json", "w") as f:
             json.dump(vues, f)
+
+        # Affiche la commande Railway à mettre à jour si besoin
+        print(f"  📝 {len(vues)} annonces mémorisées")
+
+def est_deja_vue(annonce_id):
+    """Retourne True si l'annonce a déjà été envoyée."""
+    return annonce_id in charger_annonces_vues()
 
 # ============================================================
 # 📱 TELEGRAM
@@ -549,7 +569,6 @@ def verifier_nouvelles_annonces():
     print(f"🕐 Vérification le {datetime.now().strftime('%d/%m/%Y à %H:%M:%S')}")
     print(f"{'='*55}")
 
-    annonces_vues   = charger_annonces_vues()
     toutes_annonces = []
 
     toutes_annonces += scraper_leboncoin()
@@ -560,7 +579,8 @@ def verifier_nouvelles_annonces():
 
     nouvelles = 0
     for annonce in toutes_annonces:
-        if annonce["id"] not in annonces_vues:
+        # Vérification stricte : on n'envoie que les annonces jamais vues
+        if not est_deja_vue(annonce["id"]):
             envoyer_alerte_telegram(formater_message(annonce))
             sauvegarder_annonce_vue(annonce["id"])
             nouvelles += 1
